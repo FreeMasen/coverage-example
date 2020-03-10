@@ -1,0 +1,6 @@
+/target
+/coverage
+/*.gcda
+/*.gcno
+/*.json
+/*.info
