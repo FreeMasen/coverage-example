@@ -20,4 +20,4 @@ case $(get_crate_name "$@") in
     ;;
 esac
 
-exec "$@" $COVERAGE_OPTIONS
+exec "$@" $EXTRA

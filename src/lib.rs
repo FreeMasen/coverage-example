@@ -2,6 +2,10 @@ pub fn print_hello() {
     println!("Hello, world!");
 }
 
+pub fn i_am_untested() {
+    println!("untested");
+}
+
 #[cfg(test)]
 mod test {
     #[test]
