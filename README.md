@@ -7,7 +7,7 @@ inspired by [this](https://jbp.io/2017/07/19/measuring-test-coverage-of-rust-pro
 # How To
 ## 1. First you need to make sure you have the required dependencies.
 - clang
-    - Macos: install the Xcode Command Line tools
+    - Macos: install the Xcode Command Line tools `xcode-select --install`
     - Debian: `apt-get install clang`
 - lcov
     - Macos: `brew install lcov`
@@ -40,7 +40,9 @@ We are going to make a note of these values and use them in a later step.
     - Debian
         - link path `/usr/lib/llvm-{version}/lib/clang/{full-version}/lib/linux`
         - library name: `clang_rt.profile-{arch}`
-        - note: here the {version} is a 1 dot version number (10.0) where {full-version} is a 2 dot version (10.0.1). {arch} is the system's archetecure (x86_64)
+        - note: here the {version} is a no dot version number (10) where {full-version} is a 2 dot version (10.0.1). {arch} is the system's archetecure (x86_64)
+
+An easy way to get the link path is to run `clang -print-resource-dir` which will print the full path to the "version"/"full-version" directory.
 
 ## 4. Setup a wrapper script for `rustc`
 
@@ -81,9 +83,9 @@ exec "$@" $EXTRA
 
 ## 5. Setup the env varianbles
 
-We tell cargo to use our script instead of rustc direction
+We tell cargo to use our script instead of rustc directly
 by setting the env variable `RUSTC_WRAPPER` and disable
-incremental compilation by setting the  `CARGO_INCREMENTAL` env variable to 0
+incremental compilation by setting the `CARGO_INCREMENTAL` env variable to 0
 
 ```sh
 export RUSTC_WRAPPER="$PWD/wrap.sh"
@@ -96,7 +98,7 @@ arguments for _our_ crate.
 
 
 1. Where to find the clang libraries: `-L /Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/lib/darwin` (be sure to use the path you looked up for your system)
-2. Where to find the coverage symbols: `-l clang_rt.profile_osx`
+2. Where to find the coverage symbols: `-l clang_rt.profile_osx` (be sure to use the library name for your system)
 3. Ask cargo to only crate 1 compilation unit: `-C codegen-units=1`
 4. Ask cargo to not remove dead code: `-C link-dead-code`
 5. Ask cargo to insert gcov profiling: `-C passes=insert-gcov-profiling`
@@ -132,10 +134,10 @@ This will generate a file called `tests.info` with our coverage information mapp
 to the files here. the `-s` flag is for the source directory or where we executed the cargo
 command that generated or `gc*` files. The `-t` flag is for the type, here we are using `lcov`
 because there is more work we might want to do on the output. If you are using a service like
-codecov.io, this is a type of file they could except. If you wanted to you could use the `html`
-type but this would have a bunch of extra noise in the file that we want to filter out.
+codecov.io, this is a type of file it could accept. If you wanted to you could use the `html`
+type but this might have a bunch of extra noise in the output that we want to remove.
 
-## 8. Filter outour coverage
+## 8. Filter out coverage
 Next we want to tell the coverage tool what we care about
 we can do this by executing `lcov` with the `--extract` flag like this.
 
@@ -153,22 +155,24 @@ lcov \
   --gcov-tool ./llvm-gcov.sh \
   --rc lcov_branch_coverage=1 \
   --rc lcov_excl_line=assert \
-  --extract ./tests.info "$(pwd)/*" \
+  --extract ./tests.info "src/*" \
   -o cov.info
 ```
 The argument here:
 - `--gcov-tool`: this points llvm-cov at our wrapper. note: this may not be in your path but will be available to lcov.
 - `--rc lcov_branch_coverage=1`: enables branch coverage
 - `--rc lcov_excl_line=assert`: enables line coverage
-- `--extract ./tests.info "$(pwd)/src/*"`: removes any of the coverage infor that doesn't apply to the current working directory's src directory
+- `--extract ./tests.info "src/*"`: removes any of the coverage infor that doesn't apply to the current working directory's src directory
 - `-o cov.info`: puts the extracted coverage informaiton into a new file
 
 The `--extract` flag does take two arguments, the first is the locaiton of 
 and existing `.info` file, the second is a pattern
-for where it should look. Our pattern is `$(pwd)/src/*`, which means
+for where it should look. Our pattern is `src/*`, which means
 look in any folders in the src folder present working directory. This will
 exculue and information that might have been captured from
 the standard library, dependencies, build.rs files, or integraton tests located in the tests folder.
+
+If you are uploading these files to a coverage service, you probably want to remove the `tests.info` file before doing so.
 
 ## 9. Render HTML
 At this point, we can render this as a static website to explore
