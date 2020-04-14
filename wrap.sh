@@ -13,7 +13,7 @@ get_crate_name()
 }
 
 case $(get_crate_name "$@") in
-  coverage-example)
+  coverage_example)
     EXTRA=$COVERAGE_OPTIONS
     ;;
   *)
