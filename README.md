@@ -12,15 +12,22 @@ inspired by [this](https://jbp.io/2017/07/19/measuring-test-coverage-of-rust-pro
 - lcov
     - Macos: `brew install lcov`
     - Debian: `apt-get install lcov`
+- grcov
+    - `cargo install grcov`
+    - alternate: [download from GH Releases](https://github.com/mozilla/grcov/releases)
 ## 2. Validate your required binaries are working.
+checking the versions of the following should look something like
+this, keeping in mind the version numbers may change
 ```sh
 lcov -v 
 lcov: LCOV version 1.14
-llvm-cov --version
-Apple LLVM version 11.0.0 (clang-1100.0.33.17)
-  Optimized build.
-  Default target: x86_64-apple-darwin19.2.0
-  Host CPU: skylake
+grcov --version
+grcov 0.5.9
+clang --version
+clang version 9.0.0-2 (tags/RELEASE_900/final)
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/bin
 ```
 ## 3. Find your library paths
 Depending on your version of clang, these can be in a different location.
@@ -39,8 +46,8 @@ We are going to make a note of these values and use them in a later step.
 
 This will be used by cargo to actually call `rustc`, we can use this to 
 selectively insert the code coverage information into our project only.
-It should look something like this.
-
+It should look something like this. `$COVERAGE_OPTIONS` will need to be
+set when this process kicks off, we will do that in just a moment.
 ```sh
 #! /bin/sh -e
 # ./wrap.sh
@@ -75,10 +82,12 @@ exec "$@" $EXTRA
 ## 5. Setup the env varianbles
 
 We tell cargo to use our script instead of rustc direction
-by setting the env variable `RUSTC_WRAPPER`
+by setting the env variable `RUSTC_WRAPPER` and disable
+incremental compilation by setting the  `CARGO_INCREMENTAL` env variable to 0
 
 ```sh
 export RUSTC_WRAPPER="$PWD/wrap.sh"
+export CARGO_INCREMENTAL=0
 ```
 We will also need to pass that script the extra arguments
 we want to pass to rustc. This is where we are going to use
@@ -91,10 +100,12 @@ arguments for _our_ crate.
 3. Ask cargo to only crate 1 compilation unit: `-C codegen-units=1`
 4. Ask cargo to not remove dead code: `-C link-dead-code`
 5. Ask cargo to insert gcov profiling: `-C passes=insert-gcov-profiling`
+6. Ask cargo to not inline anythings: `-C inline-threshold=0`
+7. Ask cargo to not insert overflow checks: `-C overflow-checks=off`
 All together it looks something like this.
 
 ```sh
-export COVERAGE_OPTIONS="-C codegen-units=1 -C link-dead-code -C passes=insert-gcov-profiling -L /Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/lib/darwin -l clang_rt.profile_osx"
+export COVERAGE_OPTIONS="-C codegen-units=1 -C link-dead-code -C passes=insert-gcov-profiling -L /Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/lib/darwin -l clang_rt.profile_osx -C inline-threshold=0 -C overflow-checks=off"
 ```
 
 
@@ -110,43 +121,32 @@ cargo test --lib
 
 ## 7. Gather All Coverage Information
 At this point, your project folder will be full of a bunch of files
-that end in `.gcda` and `.gcno`. We are going to point the tool `lcov`
-at these but we need to provide a shim from gcov to llvm-cov. We are
-going to create a script to do that like this.
+that end in `.gcda` and `.gcno`. We are going to point the tool `grcov`
+at these like this.
+
+```sh
+grcov . -s . -t lcov --llvm --branch --ignore-not-existing -o tests.info
+```
+
+This will generate a file called `tests.info` with our coverage information mapped
+to the files here. the `-s` flag is for the source directory or where we executed the cargo
+command that generated or `gc*` files. The `-t` flag is for the type, here we are using `lcov`
+because there is more work we might want to do on the output. If you are using a service like
+codecov.io, this is a type of file they could except. If you wanted to you could use the `html`
+type but this would have a bunch of extra noise in the file that we want to filter out.
+
+## 8. Filter outour coverage
+Next we want to tell the coverage tool what we care about
+we can do this by executing `lcov` with the `--extract` flag like this.
+
+First we need to create a wrapper that leverages the llvm-cov tool, we will put that in a file called llvm-gcov.sh, which looks like this.
 
 ```sh
 #!/bin/sh -e
-# ./llvm-gcov.sh
+echo $*
 llvm-cov gcov $@
 ```
-This simply passes the arguments that would have been provided
-to `gcov` on to `llvm-cov`'s sub comand `gcov`. A little convoluded
-but here we are.
-
-With that complete we can run the following
-```sh
-lcov \
-    --gcov-tool ./llvm-gcov.sh \ 
-    --rc lcov_branch_coverage=1 \
-    --rc lcov_excl_line=assert \
-    --capture \
-    --directory . \
-    --base-directory . \
-    -o ./tests.info
-
-```
-The arguments here do the following
-- `--gcov-tool`: direct lcov to our shim
-- `--rc lcov_branch_coverage=1`: turn on branch coverage
-- `--rc lcov_excl_line=assert`: turn on line coverage
-- `--capture`: indicate that this is the capture faze of the process
-- `--directory`: where to look
-- `--base-directory`: for relative path resolution
-- `-o ./tests.info`: where to put the output
-
-## 8. Filter out and map our coverage
-Next we want to tell the coverage tool what we care about and where it lives
-we can do this by executing `lcov` again with the `--extract` flag like this.
+With that, we can now run the extraction with the following.
 
 ```sh
 lcov \
@@ -156,18 +156,22 @@ lcov \
   --extract ./tests.info "$(pwd)/*" \
   -o cov.info
 ```
+The argument here:
+- `--gcov-tool`: this points llvm-cov at our wrapper. note: this may not be in your path but will be available to lcov.
+- `--rc lcov_branch_coverage=1`: enables branch coverage
+- `--rc lcov_excl_line=assert`: enables line coverage
+- `--extract ./tests.info "$(pwd)/src/*"`: removes any of the coverage infor that doesn't apply to the current working directory's src directory
+- `-o cov.info`: puts the extracted coverage informaiton into a new file
 
-Most of the arguments are the same as above, we have removed the
-directory arguments and swapped `--capture` for `--extract`. The
-new flag does take two arguments, the first is the locaiton of 
-and existing capture pass output, the second is a pattern
-for where it should look. Our patternis `$(pwd)/*`, which means
-look in any folders in the present working directory. This will
+The `--extract` flag does take two arguments, the first is the locaiton of 
+and existing `.info` file, the second is a pattern
+for where it should look. Our pattern is `$(pwd)/src/*`, which means
+look in any folders in the src folder present working directory. This will
 exculue and information that might have been captured from
-the standard library or other dependencies.
+the standard library, dependencies, build.rs files, or integraton tests located in the tests folder.
 
 ## 9. Render HTML
-At this point, we can render this render a static website to explore
+At this point, we can render this as a static website to explore
 our coverage, we do this with the `genhtml` command. It looks something
 like this.
 

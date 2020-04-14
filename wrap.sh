@@ -1,3 +1,4 @@
+#! /bin/bash -e
 get_crate_name()
 {
   while [[ $# -gt 1 ]] ; do
@@ -13,11 +14,11 @@ get_crate_name()
 }
 
 case $(get_crate_name "$@") in
-  coverage-example)
+  coverage_example)
     EXTRA=$COVERAGE_OPTIONS
     ;;
   *)
     ;;
 esac
-
+echo "$@ $EXTRA" >> out.log
 exec "$@" $EXTRA
