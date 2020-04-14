@@ -1,5 +1,11 @@
+use atty::Stream;
+
 pub fn print_hello() {
-    println!("Hello, world!");
+    if atty::is(Stream::Stdin) {
+        println!("Hello, world!");
+    } else {
+        panic!("must be called from a tty")
+    }
 }
 
 pub fn i_am_untested() {

@@ -1,3 +1,4 @@
+#! /bin/bash -e
 get_crate_name()
 {
   while [[ $# -gt 1 ]] ; do
@@ -19,5 +20,5 @@ case $(get_crate_name "$@") in
   *)
     ;;
 esac
-
+echo "$@ $EXTRA" >> out.log
 exec "$@" $EXTRA
